@@ -116,6 +116,7 @@ import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.XrayProxyManager;
 import org.telegram.messenger.XiaomiUtilities;
 import org.telegram.messenger.utils.tlutils.TlUtils;
 import org.telegram.tgnet.ConnectionsManager;
@@ -3442,10 +3443,14 @@ public class VoIPService extends Service implements SensorEventListener, AudioMa
 			// proxy
 			Instance.Proxy proxy = null;
 			if (preferences.getBoolean("proxy_enabled", false) && preferences.getBoolean("proxy_enabled_calls", false)) {
-				final String server = preferences.getString("proxy_ip", null);
-				final String secret = preferences.getString("proxy_secret", null);
-				if (!TextUtils.isEmpty(server) && TextUtils.isEmpty(secret)) {
-					proxy = new Instance.Proxy(server, preferences.getInt("proxy_port", 0), preferences.getString("proxy_user", null), preferences.getString("proxy_pass", null));
+				if (SharedConfig.currentProxy != null && SharedConfig.currentProxy.proxyType == SharedConfig.ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+					proxy = new Instance.Proxy(XrayProxyManager.LOCAL_ADDRESS, XrayProxyManager.getLocalSocksPort(), null, null);
+				} else {
+					final String server = preferences.getString("proxy_ip", null);
+					final String secret = preferences.getString("proxy_secret", null);
+					if (!TextUtils.isEmpty(server) && TextUtils.isEmpty(secret)) {
+						proxy = new Instance.Proxy(server, preferences.getInt("proxy_port", 0), preferences.getString("proxy_user", null), preferences.getString("proxy_pass", null));
+					}
 				}
 			}
 

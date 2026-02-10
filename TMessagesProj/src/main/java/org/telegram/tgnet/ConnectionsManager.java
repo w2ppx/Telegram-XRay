@@ -44,6 +44,7 @@ import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
+import org.telegram.messenger.XrayProxyManager;
 import org.telegram.ui.Components.VideoPlayer;
 import org.telegram.ui.LoginActivity;
 
@@ -112,6 +113,8 @@ public class ConnectionsManager extends BaseController {
     public final static byte USE_IPV4_IPV6_RANDOM = 2;
 
     private static long lastDnsRequestTime;
+    private static final Object xrayProxyLock = new Object();
+    private static boolean xrayProxyWaiting;
 
     public final static int DEFAULT_DATACENTER_ID = Integer.MAX_VALUE;
 
@@ -616,7 +619,16 @@ public class ConnectionsManager extends BaseController {
         int proxyPort = preferences.getInt("proxy_port", 1080);
 
         if (preferences.getBoolean("proxy_enabled", false) && !TextUtils.isEmpty(proxyAddress)) {
-            native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+            if (SharedConfig.currentProxy != null && SharedConfig.currentProxy.proxyType == SharedConfig.ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+                XrayProxyManager.startService();
+                if (XrayProxyManager.isSocksReady()) {
+                    native_setProxySettings(currentAccount, XrayProxyManager.LOCAL_ADDRESS, XrayProxyManager.getLocalSocksPort(), "", "", "");
+                } else {
+                    scheduleXrayProxyApply();
+                }
+            } else {
+                native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+            }
         }
         String installer = "";
         try {
@@ -942,6 +954,27 @@ public class ConnectionsManager extends BaseController {
             secret = "";
         }
 
+        if (enabled && SharedConfig.currentProxy != null && SharedConfig.currentProxy.proxyType == SharedConfig.ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+            XrayProxyManager.startService();
+            if (XrayProxyManager.isSocksReady()) {
+                address = XrayProxyManager.LOCAL_ADDRESS;
+                port = XrayProxyManager.getLocalSocksPort();
+                username = "";
+                password = "";
+                secret = "";
+            } else {
+                scheduleXrayProxyApply();
+                enabled = false;
+                address = "";
+                port = 0;
+                username = "";
+                password = "";
+                secret = "";
+            }
+        } else if (!enabled && SharedConfig.currentProxy != null && SharedConfig.currentProxy.proxyType == SharedConfig.ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+            XrayProxyManager.stopService();
+        }
+
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             if (enabled && !TextUtils.isEmpty(address)) {
                 native_setProxySettings(a, address, port, username, password, secret);
@@ -953,6 +986,36 @@ public class ConnectionsManager extends BaseController {
                 accountInstance.getMessagesController().checkPromoInfo(true);
             }
         }
+    }
+
+    private static void scheduleXrayProxyApply() {
+        synchronized (xrayProxyLock) {
+            if (xrayProxyWaiting) {
+                return;
+            }
+            xrayProxyWaiting = true;
+        }
+        Utilities.globalQueue.postRunnable(() -> {
+            try {
+                boolean ready = XrayProxyManager.waitForSocksReady(180_000);
+                if (!ready) {
+                    return;
+                }
+                SharedConfig.loadProxyList();
+                SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+                if (!preferences.getBoolean("proxy_enabled", false)) {
+                    return;
+                }
+                if (SharedConfig.currentProxy == null || SharedConfig.currentProxy.proxyType != SharedConfig.ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+                    return;
+                }
+                setProxySettings(true, "", 0, "", "", "");
+            } finally {
+                synchronized (xrayProxyLock) {
+                    xrayProxyWaiting = false;
+                }
+            }
+        });
     }
 
     public static native void native_switchBackend(int currentAccount, boolean restart);

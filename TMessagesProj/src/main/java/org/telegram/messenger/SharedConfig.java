@@ -14,6 +14,7 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.net.Uri;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.os.Build;
@@ -24,6 +25,7 @@ import android.util.Base64;
 import android.webkit.WebView;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.pm.ShortcutManagerCompat;
 
@@ -41,12 +43,14 @@ import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 
@@ -55,7 +59,11 @@ public class SharedConfig {
      * V2: Ping and check time serialized
      */
     private final static int PROXY_SCHEMA_V2 = 2;
-    private final static int PROXY_CURRENT_SCHEMA_VERSION = PROXY_SCHEMA_V2;
+    private final static int PROXY_SCHEMA_V3 = 3;
+    private final static int PROXY_SCHEMA_V4 = 4;
+    // V5: subscription group name serialized
+    private final static int PROXY_SCHEMA_V5 = 5;
+    private final static int PROXY_CURRENT_SCHEMA_VERSION = PROXY_SCHEMA_V5;
 
     public final static int PASSCODE_TYPE_PIN = 0,
             PASSCODE_TYPE_PASSWORD = 1;
@@ -372,11 +380,44 @@ public class SharedConfig {
 
     public static class ProxyInfo {
 
+        public static final int PROXY_TYPE_SOCKS5 = 0;
+        public static final int PROXY_TYPE_MTPROTO = 1;
+        public static final int PROXY_TYPE_XRAY_VLESS = 2;
+
         public String address;
         public int port;
         public String username;
         public String password;
         public String secret;
+        public int proxyType = PROXY_TYPE_SOCKS5;
+        public String proxyName;
+        public boolean isSubscription;
+        public String subscriptionName;
+
+        // Xray VLESS fields (used when proxyType == PROXY_TYPE_XRAY_VLESS)
+        public String vlessId;
+        public String vlessEncryption;
+        public String vlessFlow;
+        public String vlessSecurity;
+        public String vlessType;
+        public String vlessSni;
+        public String vlessHost;
+        public String vlessPath;
+        public String vlessServiceName;
+        public String vlessFp;
+        public String vlessAlpn;
+        public String vlessPublicKey;
+        public String vlessShortId;
+        public String vlessSpiderX;
+        public String vlessHeaderType;
+        public String vlessSeed;
+        public String vlessQuicSecurity;
+        public String vlessQuicKey;
+        public String vlessMode;
+        public boolean vlessAllowInsecure;
+        public String vlessRemark;
+        public String vlessRawQuery;
+        public String vlessAdvancedJson;
 
         public long proxyCheckPingId;
         public long ping;
@@ -390,6 +431,7 @@ public class SharedConfig {
             this.username = username;
             this.password = password;
             this.secret = secret;
+            this.vlessEncryption = "none";
             if (this.address == null) {
                 this.address = "";
             }
@@ -402,27 +444,278 @@ public class SharedConfig {
             if (this.secret == null) {
                 this.secret = "";
             }
+            this.proxyType = TextUtils.isEmpty(this.secret) ? PROXY_TYPE_SOCKS5 : PROXY_TYPE_MTPROTO;
+            if (this.vlessId == null) {
+                this.vlessId = "";
+            }
+            if (this.vlessFlow == null) {
+                this.vlessFlow = "";
+            }
+            if (this.vlessSecurity == null) {
+                this.vlessSecurity = "";
+            }
+            if (this.vlessType == null) {
+                this.vlessType = "";
+            }
+            if (this.vlessSni == null) {
+                this.vlessSni = "";
+            }
+            if (this.vlessHost == null) {
+                this.vlessHost = "";
+            }
+            if (this.vlessPath == null) {
+                this.vlessPath = "";
+            }
+            if (this.vlessServiceName == null) {
+                this.vlessServiceName = "";
+            }
+            if (this.vlessFp == null) {
+                this.vlessFp = "";
+            }
+            if (this.vlessAlpn == null) {
+                this.vlessAlpn = "";
+            }
+            if (this.vlessPublicKey == null) {
+                this.vlessPublicKey = "";
+            }
+            if (this.vlessShortId == null) {
+                this.vlessShortId = "";
+            }
+            if (this.vlessSpiderX == null) {
+                this.vlessSpiderX = "";
+            }
+            if (this.vlessHeaderType == null) {
+                this.vlessHeaderType = "";
+            }
+            if (this.vlessSeed == null) {
+                this.vlessSeed = "";
+            }
+            if (this.vlessQuicSecurity == null) {
+                this.vlessQuicSecurity = "";
+            }
+            if (this.vlessQuicKey == null) {
+                this.vlessQuicKey = "";
+            }
+            if (this.vlessMode == null) {
+                this.vlessMode = "";
+            }
+            if (this.vlessRemark == null) {
+                this.vlessRemark = "";
+            }
+            if (this.vlessRawQuery == null) {
+                this.vlessRawQuery = "";
+            }
+            if (this.vlessAdvancedJson == null) {
+                this.vlessAdvancedJson = "";
+            }
+            if (this.vlessEncryption == null) {
+                this.vlessEncryption = "none";
+            }
+            if (this.proxyName == null) {
+                this.proxyName = "";
+            }
+            if (this.subscriptionName == null) {
+                this.subscriptionName = "";
+            }
+        }
+
+        public String getDisplayName() {
+            if (proxyType == PROXY_TYPE_XRAY_VLESS && !TextUtils.isEmpty(vlessRemark)) {
+                return vlessRemark;
+            }
+            if (!TextUtils.isEmpty(proxyName)) {
+                return proxyName;
+            }
+            return "";
         }
 
         public String getLink() {
-            StringBuilder url = new StringBuilder(!TextUtils.isEmpty(secret) ? "https://t.me/proxy?" : "https://t.me/socks?");
+            if (proxyType == PROXY_TYPE_XRAY_VLESS) {
+                StringBuilder url = new StringBuilder("vless://");
+                try {
+                    url.append(URLEncoder.encode(vlessId != null ? vlessId : "", "UTF-8"));
+                    url.append("@").append(URLEncoder.encode(address, "UTF-8"));
+                    url.append(":").append(port);
+                    ArrayList<String> params = new ArrayList<>();
+                    appendParam(params, "type", vlessType);
+                    appendParam(params, "security", vlessSecurity);
+                    appendParam(params, "encryption", vlessEncryption);
+                    appendParam(params, "flow", vlessFlow);
+                    appendParam(params, "sni", vlessSni);
+                    appendParam(params, "fp", vlessFp);
+                    appendParam(params, "alpn", vlessAlpn);
+                    appendParam(params, "host", vlessHost);
+                    appendParam(params, "path", vlessPath);
+                    appendParam(params, "serviceName", vlessServiceName);
+                    appendParam(params, "mode", vlessMode);
+                    appendParam(params, "headerType", vlessHeaderType);
+                    appendParam(params, "seed", vlessSeed);
+                    appendParam(params, "quicSecurity", vlessQuicSecurity);
+                    appendParam(params, "key", vlessQuicKey);
+                    appendParam(params, "pbk", vlessPublicKey);
+                    appendParam(params, "sid", vlessShortId);
+                    appendParam(params, "spx", vlessSpiderX);
+                    if (vlessAllowInsecure) {
+                        appendParam(params, "allowInsecure", "1");
+                    }
+                    if (!params.isEmpty()) {
+                        url.append("?").append(TextUtils.join("&", params));
+                    }
+                    if (!TextUtils.isEmpty(vlessRemark)) {
+                        url.append("#").append(URLEncoder.encode(vlessRemark, "UTF-8"));
+                    }
+                } catch (UnsupportedEncodingException ignored) {}
+                return url.toString();
+            } else {
+                StringBuilder url = new StringBuilder(!TextUtils.isEmpty(secret) ? "https://t.me/proxy?" : "https://t.me/socks?");
+                try {
+                    url.append("server=").append(URLEncoder.encode(address, "UTF-8")).append("&").append("port=").append(port);
+                    if (!TextUtils.isEmpty(username)) {
+                        url.append("&user=").append(URLEncoder.encode(username, "UTF-8"));
+                    }
+                    if (!TextUtils.isEmpty(password)) {
+                        url.append("&pass=").append(URLEncoder.encode(password, "UTF-8"));
+                    }
+                    if (!TextUtils.isEmpty(secret)) {
+                        url.append("&secret=").append(URLEncoder.encode(secret, "UTF-8"));
+                    }
+                    if (!TextUtils.isEmpty(proxyName)) {
+                        url.append("#").append(URLEncoder.encode(proxyName, "UTF-8"));
+                    }
+                } catch (UnsupportedEncodingException ignored) {}
+                return url.toString();
+            }
+        }
+
+        public static ProxyInfo fromUrl(String url) {
+            if (url != null && url.toLowerCase().startsWith("vless://")) {
+                return fromVlessUrl(url);
+            }
+            Uri lnk = Uri.parse(url);
+            if (lnk == null) throw new IllegalArgumentException(url);
+            ProxyInfo info = new ProxyInfo(
+                    lnk.getQueryParameter("server"),
+                    Utilities.parseInt(lnk.getQueryParameter("port")),
+                    lnk.getQueryParameter("user"),
+                    lnk.getQueryParameter("pass"),
+                    lnk.getQueryParameter("secret")
+            );
+            info.proxyType = TextUtils.isEmpty(info.secret) ? PROXY_TYPE_SOCKS5 : PROXY_TYPE_MTPROTO;
+            String fragment = lnk.getFragment();
+            if (!TextUtils.isEmpty(fragment)) {
+                info.proxyName = fragment;
+            }
+            return info;
+        }
+
+        private static ProxyInfo fromVlessUrl(String url) {
             try {
-                url.append("server=").append(URLEncoder.encode(address, "UTF-8")).append("&").append("port=").append(port);
-                if (!TextUtils.isEmpty(username)) {
-                    url.append("&user=").append(URLEncoder.encode(username, "UTF-8"));
+                java.net.URI uri = new java.net.URI(url);
+                ProxyInfo info = new ProxyInfo(uri.getHost(), uri.getPort(), "", "", "");
+                info.proxyType = PROXY_TYPE_XRAY_VLESS;
+                info.vlessId = uri.getUserInfo();
+                String rawQuery = uri.getRawQuery();
+                info.vlessRawQuery = rawQuery != null ? rawQuery : "";
+                info.vlessRemark = uri.getFragment() != null ? URLDecoder.decode(uri.getFragment(), "UTF-8") : "";
+                if (!TextUtils.isEmpty(rawQuery)) {
+                    String[] parts = rawQuery.split("&");
+                    for (String part : parts) {
+                        String[] pair = part.split("=", 2);
+                        if (pair.length != 2) {
+                            continue;
+                        }
+                        String key = URLDecoder.decode(pair[0], "UTF-8");
+                        String value = URLDecoder.decode(pair[1], "UTF-8");
+                        if (key == null) {
+                            continue;
+                        }
+                        switch (key.toLowerCase()) {
+                            case "encryption":
+                                info.vlessEncryption = value;
+                                break;
+                            case "flow":
+                                info.vlessFlow = value;
+                                break;
+                            case "security":
+                                info.vlessSecurity = value;
+                                break;
+                            case "type":
+                                info.vlessType = value;
+                                break;
+                            case "sni":
+                                info.vlessSni = value;
+                                break;
+                            case "host":
+                                info.vlessHost = value;
+                                break;
+                            case "path":
+                                info.vlessPath = value;
+                                break;
+                            case "servicename":
+                                info.vlessServiceName = value;
+                                break;
+                            case "fp":
+                                info.vlessFp = value;
+                                break;
+                            case "alpn":
+                                info.vlessAlpn = value;
+                                break;
+                            case "pbk":
+                                info.vlessPublicKey = value;
+                                break;
+                            case "sid":
+                                info.vlessShortId = value;
+                                break;
+                            case "spx":
+                                info.vlessSpiderX = value;
+                                break;
+                            case "headertype":
+                                info.vlessHeaderType = value;
+                                break;
+                            case "seed":
+                                info.vlessSeed = value;
+                                break;
+                            case "quicsecurity":
+                                info.vlessQuicSecurity = value;
+                                break;
+                            case "key":
+                                info.vlessQuicKey = value;
+                                break;
+                            case "mode":
+                                info.vlessMode = value;
+                                break;
+                            case "allowinsecure":
+                                info.vlessAllowInsecure = "1".equals(value) || "true".equalsIgnoreCase(value);
+                                break;
+                        }
+                    }
                 }
-                if (!TextUtils.isEmpty(password)) {
-                    url.append("&pass=").append(URLEncoder.encode(password, "UTF-8"));
+                if (TextUtils.isEmpty(info.vlessEncryption)) {
+                    info.vlessEncryption = "none";
                 }
-                if (!TextUtils.isEmpty(secret)) {
-                    url.append("&secret=").append(URLEncoder.encode(secret, "UTF-8"));
-                }
-            } catch (UnsupportedEncodingException ignored) {}
-            return url.toString();
+                return info;
+            } catch (Throwable e) {
+                throw new IllegalArgumentException(url, e);
+            }
+        }
+
+        private static void appendParam(ArrayList<String> params, String key, String value) throws UnsupportedEncodingException {
+            if (TextUtils.isEmpty(value)) {
+                return;
+            }
+            params.add(URLEncoder.encode(key, "UTF-8") + "=" + URLEncoder.encode(value, "UTF-8"));
         }
     }
 
     public static ArrayList<ProxyInfo> proxyList = new ArrayList<>();
+    public static LinkedList<ProxyInfo> getProxyList() {
+        while (true) {
+            try {
+                return new LinkedList<>(proxyList);
+            } catch (Exception ignored) {
+            }
+        }
+    }
     private static boolean proxyListLoaded;
     public static ProxyInfo currentProxy;
 
@@ -1433,7 +1726,7 @@ public class SharedConfig {
             if (count == -1) { // V2 or newer
                 int version = data.readByte(false);
 
-                if (version == PROXY_SCHEMA_V2) {
+                if (version == PROXY_SCHEMA_V5) {
                     count = data.readInt32(false);
 
                     for (int i = 0; i < count; i++) {
@@ -1443,9 +1736,186 @@ public class SharedConfig {
                                 data.readString(false),
                                 data.readString(false),
                                 data.readString(false));
+                        info.proxyType = data.readInt32(false);
+                        info.vlessId = data.readString(false);
+                        info.vlessEncryption = data.readString(false);
+                        info.vlessFlow = data.readString(false);
+                        info.vlessSecurity = data.readString(false);
+                        info.vlessType = data.readString(false);
+                        info.vlessSni = data.readString(false);
+                        info.vlessHost = data.readString(false);
+                        info.vlessPath = data.readString(false);
+                        info.vlessServiceName = data.readString(false);
+                        info.vlessFp = data.readString(false);
+                        info.vlessAlpn = data.readString(false);
+                        info.vlessPublicKey = data.readString(false);
+                        info.vlessShortId = data.readString(false);
+                        info.vlessSpiderX = data.readString(false);
+                        info.vlessHeaderType = data.readString(false);
+                        info.vlessSeed = data.readString(false);
+                        info.vlessQuicSecurity = data.readString(false);
+                        info.vlessQuicKey = data.readString(false);
+                        info.vlessMode = data.readString(false);
+                        info.vlessAllowInsecure = data.readBool(false);
+                        info.vlessRemark = data.readString(false);
+                        info.vlessRawQuery = data.readString(false);
+                        info.vlessAdvancedJson = data.readString(false);
+                        info.proxyName = data.readString(false);
+                        info.isSubscription = data.readBool(false);
+                        info.subscriptionName = data.readString(false);
+                        info.ping = data.readInt64(false);
+                        info.availableCheckTime = data.readInt64(false);
+
+                        if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 || info.proxyType == ProxyInfo.PROXY_TYPE_MTPROTO) {
+                            if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 && !TextUtils.isEmpty(info.secret)) {
+                                info.proxyType = ProxyInfo.PROXY_TYPE_MTPROTO;
+                            }
+                        }
+                        if (TextUtils.isEmpty(info.vlessEncryption)) {
+                            info.vlessEncryption = "none";
+                        }
+                        if (info.subscriptionName == null) {
+                            info.subscriptionName = "";
+                        }
+
+                        proxyList.add(0, info);
+                        if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                            if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
+                                currentProxy = info;
+                            }
+                        }
+                    }
+                } else if (version == PROXY_SCHEMA_V4) {
+                    count = data.readInt32(false);
+
+                    for (int i = 0; i < count; i++) {
+                        ProxyInfo info = new ProxyInfo(
+                                data.readString(false),
+                                data.readInt32(false),
+                                data.readString(false),
+                                data.readString(false),
+                                data.readString(false));
+                        info.proxyType = data.readInt32(false);
+                        info.vlessId = data.readString(false);
+                        info.vlessEncryption = data.readString(false);
+                        info.vlessFlow = data.readString(false);
+                        info.vlessSecurity = data.readString(false);
+                        info.vlessType = data.readString(false);
+                        info.vlessSni = data.readString(false);
+                        info.vlessHost = data.readString(false);
+                        info.vlessPath = data.readString(false);
+                        info.vlessServiceName = data.readString(false);
+                        info.vlessFp = data.readString(false);
+                        info.vlessAlpn = data.readString(false);
+                        info.vlessPublicKey = data.readString(false);
+                        info.vlessShortId = data.readString(false);
+                        info.vlessSpiderX = data.readString(false);
+                        info.vlessHeaderType = data.readString(false);
+                        info.vlessSeed = data.readString(false);
+                        info.vlessQuicSecurity = data.readString(false);
+                        info.vlessQuicKey = data.readString(false);
+                        info.vlessMode = data.readString(false);
+                        info.vlessAllowInsecure = data.readBool(false);
+                        info.vlessRemark = data.readString(false);
+                        info.vlessRawQuery = data.readString(false);
+                        info.vlessAdvancedJson = data.readString(false);
+                        info.proxyName = data.readString(false);
+                        info.isSubscription = data.readBool(false);
+                        info.subscriptionName = "";
+                        info.ping = data.readInt64(false);
+                        info.availableCheckTime = data.readInt64(false);
+
+                        if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 || info.proxyType == ProxyInfo.PROXY_TYPE_MTPROTO) {
+                            if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 && !TextUtils.isEmpty(info.secret)) {
+                                info.proxyType = ProxyInfo.PROXY_TYPE_MTPROTO;
+                            }
+                        }
+                        if (TextUtils.isEmpty(info.vlessEncryption)) {
+                            info.vlessEncryption = "none";
+                        }
+                        if (info.subscriptionName == null) {
+                            info.subscriptionName = "";
+                        }
+
+                        proxyList.add(0, info);
+                        if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                            if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
+                                currentProxy = info;
+                            }
+                        }
+                    }
+                } else if (version == PROXY_SCHEMA_V3) {
+                    count = data.readInt32(false);
+
+                    for (int i = 0; i < count; i++) {
+                        ProxyInfo info = new ProxyInfo(
+                                data.readString(false),
+                                data.readInt32(false),
+                                data.readString(false),
+                                data.readString(false),
+                                data.readString(false));
+                        info.proxyType = data.readInt32(false);
+                        info.vlessId = data.readString(false);
+                        info.vlessEncryption = data.readString(false);
+                        info.vlessFlow = data.readString(false);
+                        info.vlessSecurity = data.readString(false);
+                        info.vlessType = data.readString(false);
+                        info.vlessSni = data.readString(false);
+                        info.vlessHost = data.readString(false);
+                        info.vlessPath = data.readString(false);
+                        info.vlessServiceName = data.readString(false);
+                        info.vlessFp = data.readString(false);
+                        info.vlessAlpn = data.readString(false);
+                        info.vlessPublicKey = data.readString(false);
+                        info.vlessShortId = data.readString(false);
+                        info.vlessSpiderX = data.readString(false);
+                        info.vlessHeaderType = data.readString(false);
+                        info.vlessSeed = data.readString(false);
+                        info.vlessQuicSecurity = data.readString(false);
+                        info.vlessQuicKey = data.readString(false);
+                        info.vlessMode = data.readString(false);
+                        info.vlessAllowInsecure = data.readBool(false);
+                        info.vlessRemark = data.readString(false);
+                        info.vlessRawQuery = data.readString(false);
+                        info.vlessAdvancedJson = data.readString(false);
+                        info.ping = data.readInt64(false);
+                        info.availableCheckTime = data.readInt64(false);
+                        info.subscriptionName = "";
+
+                        if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 || info.proxyType == ProxyInfo.PROXY_TYPE_MTPROTO) {
+                            if (info.proxyType == ProxyInfo.PROXY_TYPE_SOCKS5 && !TextUtils.isEmpty(info.secret)) {
+                                info.proxyType = ProxyInfo.PROXY_TYPE_MTPROTO;
+                            }
+                        }
+                        if (TextUtils.isEmpty(info.vlessEncryption)) {
+                            info.vlessEncryption = "none";
+                        }
+                        if (info.subscriptionName == null) {
+                            info.subscriptionName = "";
+                        }
+
+                        proxyList.add(0, info);
+                        if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                            if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
+                                currentProxy = info;
+                            }
+                        }
+                    }
+                } else if (version == PROXY_SCHEMA_V2) {
+                    count = data.readInt32(false);
+
+                    for (int i = 0; i < count; i++) {
+                        ProxyInfo info = new ProxyInfo(
+                                data.readString(false),
+                                data.readInt32(false),
+                                data.readString(false),
+                                data.readString(false),
+                                data.readString(false));
+                        info.proxyType = TextUtils.isEmpty(info.secret) ? ProxyInfo.PROXY_TYPE_SOCKS5 : ProxyInfo.PROXY_TYPE_MTPROTO;
 
                         info.ping = data.readInt64(false);
                         info.availableCheckTime = data.readInt64(false);
+                        info.subscriptionName = "";
 
                         proxyList.add(0, info);
                         if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
@@ -1506,6 +1976,33 @@ public class SharedConfig {
             serializedData.writeString(info.username != null ? info.username : "");
             serializedData.writeString(info.password != null ? info.password : "");
             serializedData.writeString(info.secret != null ? info.secret : "");
+            serializedData.writeInt32(info.proxyType);
+            serializedData.writeString(info.vlessId != null ? info.vlessId : "");
+            serializedData.writeString(info.vlessEncryption != null ? info.vlessEncryption : "");
+            serializedData.writeString(info.vlessFlow != null ? info.vlessFlow : "");
+            serializedData.writeString(info.vlessSecurity != null ? info.vlessSecurity : "");
+            serializedData.writeString(info.vlessType != null ? info.vlessType : "");
+            serializedData.writeString(info.vlessSni != null ? info.vlessSni : "");
+            serializedData.writeString(info.vlessHost != null ? info.vlessHost : "");
+            serializedData.writeString(info.vlessPath != null ? info.vlessPath : "");
+            serializedData.writeString(info.vlessServiceName != null ? info.vlessServiceName : "");
+            serializedData.writeString(info.vlessFp != null ? info.vlessFp : "");
+            serializedData.writeString(info.vlessAlpn != null ? info.vlessAlpn : "");
+            serializedData.writeString(info.vlessPublicKey != null ? info.vlessPublicKey : "");
+            serializedData.writeString(info.vlessShortId != null ? info.vlessShortId : "");
+            serializedData.writeString(info.vlessSpiderX != null ? info.vlessSpiderX : "");
+            serializedData.writeString(info.vlessHeaderType != null ? info.vlessHeaderType : "");
+            serializedData.writeString(info.vlessSeed != null ? info.vlessSeed : "");
+            serializedData.writeString(info.vlessQuicSecurity != null ? info.vlessQuicSecurity : "");
+            serializedData.writeString(info.vlessQuicKey != null ? info.vlessQuicKey : "");
+            serializedData.writeString(info.vlessMode != null ? info.vlessMode : "");
+            serializedData.writeBool(info.vlessAllowInsecure);
+            serializedData.writeString(info.vlessRemark != null ? info.vlessRemark : "");
+            serializedData.writeString(info.vlessRawQuery != null ? info.vlessRawQuery : "");
+            serializedData.writeString(info.vlessAdvancedJson != null ? info.vlessAdvancedJson : "");
+            serializedData.writeString(info.proxyName != null ? info.proxyName : "");
+            serializedData.writeBool(info.isSubscription);
+            serializedData.writeString(info.subscriptionName != null ? info.subscriptionName : "");
 
             serializedData.writeInt64(info.ping);
             serializedData.writeInt64(info.availableCheckTime);
@@ -1516,20 +2013,135 @@ public class SharedConfig {
     }
 
     public static ProxyInfo addProxy(ProxyInfo proxyInfo) {
+        return addProxy(proxyInfo, false);
+    }
+
+    public static ProxyInfo addProxy(ProxyInfo proxyInfo, boolean fromSubscription) {
         loadProxyList();
         int count = proxyList.size();
         for (int a = 0; a < count; a++) {
             ProxyInfo info = proxyList.get(a);
-            if (proxyInfo.address.equals(info.address) && proxyInfo.port == info.port && proxyInfo.username.equals(info.username) && proxyInfo.password.equals(info.password) && proxyInfo.secret.equals(info.secret)) {
+            if (isSameProxy(proxyInfo, info)) {
+                boolean changed = false;
+                if (fromSubscription && !info.isSubscription) {
+                    info.isSubscription = true;
+                    changed = true;
+                }
+                if (fromSubscription && TextUtils.isEmpty(info.subscriptionName) && !TextUtils.isEmpty(proxyInfo.subscriptionName)) {
+                    info.subscriptionName = proxyInfo.subscriptionName;
+                    changed = true;
+                }
+                if (info.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+                    if (TextUtils.isEmpty(info.vlessRemark) && !TextUtils.isEmpty(proxyInfo.vlessRemark)) {
+                        info.vlessRemark = proxyInfo.vlessRemark;
+                        changed = true;
+                    }
+                } else {
+                    if (TextUtils.isEmpty(info.proxyName) && !TextUtils.isEmpty(proxyInfo.proxyName)) {
+                        info.proxyName = proxyInfo.proxyName;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    saveProxyList();
+                }
                 return info;
             }
+        }
+        if (fromSubscription) {
+            proxyInfo.isSubscription = true;
         }
         proxyList.add(0, proxyInfo);
         saveProxyList();
         return proxyInfo;
     }
 
+    private static boolean isSameProxy(ProxyInfo a, ProxyInfo b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        if (a.proxyType != b.proxyType) {
+            return false;
+        }
+        if (!TextUtils.equals(a.address, b.address) || a.port != b.port) {
+            return false;
+        }
+        if (a.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+            return TextUtils.equals(a.vlessId, b.vlessId)
+                    && TextUtils.equals(a.vlessSecurity, b.vlessSecurity)
+                    && TextUtils.equals(a.vlessType, b.vlessType)
+                    && TextUtils.equals(a.vlessFlow, b.vlessFlow)
+                    && TextUtils.equals(a.vlessHost, b.vlessHost)
+                    && TextUtils.equals(a.vlessPath, b.vlessPath)
+                    && TextUtils.equals(a.vlessServiceName, b.vlessServiceName)
+                    && TextUtils.equals(a.vlessSni, b.vlessSni)
+                    && TextUtils.equals(a.vlessFp, b.vlessFp)
+                    && TextUtils.equals(a.vlessAlpn, b.vlessAlpn)
+                    && TextUtils.equals(a.vlessPublicKey, b.vlessPublicKey)
+                    && TextUtils.equals(a.vlessShortId, b.vlessShortId)
+                    && TextUtils.equals(a.vlessSpiderX, b.vlessSpiderX)
+                    && TextUtils.equals(a.vlessHeaderType, b.vlessHeaderType)
+                    && TextUtils.equals(a.vlessSeed, b.vlessSeed)
+                    && TextUtils.equals(a.vlessQuicSecurity, b.vlessQuicSecurity)
+                    && TextUtils.equals(a.vlessQuicKey, b.vlessQuicKey)
+                    && TextUtils.equals(a.vlessMode, b.vlessMode)
+                    && a.vlessAllowInsecure == b.vlessAllowInsecure
+                    && TextUtils.equals(a.vlessAdvancedJson, b.vlessAdvancedJson);
+        }
+        return TextUtils.equals(a.username, b.username)
+                && TextUtils.equals(a.password, b.password)
+                && TextUtils.equals(a.secret, b.secret);
+    }
+
+    public static void setProxyEnable(boolean enable) {
+        if (enable && currentProxy == null) {
+            enable = false;
+        }
+
+        SharedPreferences preferences = MessagesController.getGlobalMainSettings();
+        preferences.edit().putBoolean("proxy_enabled", enable).apply();
+
+        ProxyInfo finalInfo = currentProxy;
+        boolean finalEnable = enable;
+        boolean useXray = finalEnable && finalInfo != null && finalInfo.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS;
+        if (useXray) {
+            XrayProxyManager.startService();
+        } else {
+            XrayProxyManager.stopService();
+        }
+        Utilities.globalQueue.postRunnable(() -> {
+            if (finalEnable) {
+                if (finalInfo != null && finalInfo.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+                    ConnectionsManager.setProxySettings(true, XrayProxyManager.LOCAL_ADDRESS, XrayProxyManager.getLocalSocksPort(), "", "", "");
+                } else {
+                    ConnectionsManager.setProxySettings(true, finalInfo.address, finalInfo.port, finalInfo.username, finalInfo.password, finalInfo.secret);
+                }
+            } else {
+                ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
+            }
+            AndroidUtilities.runOnUIThread(() -> NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged));
+
+        });
+
+    }
+
+    public static void setCurrentProxy(@Nullable ProxyInfo info) {
+        ProxyInfo previousProxy = currentProxy;
+        currentProxy = info;
+        MessagesController.getGlobalMainSettings().edit()
+                .putInt("current_proxy", info == null ? 0 : info.hashCode())
+                .apply();
+
+        if (previousProxy != null && previousProxy.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS && (info == null || info.proxyType != ProxyInfo.PROXY_TYPE_XRAY_VLESS)) {
+            XrayProxyManager.stopService();
+        }
+
+        setProxyEnable(info != null);
+
+    }
+
     public static boolean isProxyEnabled() {
+        loadProxyList();
         return MessagesController.getGlobalMainSettings().getBoolean("proxy_enabled", false) && currentProxy != null;
     }
 
@@ -1550,9 +2162,26 @@ public class SharedConfig {
             if (enabled) {
                 ConnectionsManager.setProxySettings(false, "", 0, "", "", "");
             }
+            if (proxyInfo.proxyType == ProxyInfo.PROXY_TYPE_XRAY_VLESS) {
+                XrayProxyManager.stopService();
+            }
         }
         proxyList.remove(proxyInfo);
         saveProxyList();
+    }
+
+    public static void deleteAllProxy() {
+
+        setCurrentProxy(null);
+
+        proxyListLoaded = false;
+
+        proxyList.clear();
+
+        saveProxyList();
+
+        loadProxyList();
+
     }
 
     public static void checkSaveToGalleryFiles() {

@@ -486,6 +486,12 @@ e            <intent-filter>
             android:foregroundServiceType="dataSync"
         />
         <service
+            android:name=".XrayProxyService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+        />
+        <service
             android:name=".NotificationRepeat"
             android:exported="false"
             android:foregroundServiceType="dataSync"
