@@ -2568,6 +2568,8 @@
     <string name="ProxySubscriptionAdded">Subscription added</string>
     <string name="ProxySubscriptionUpdated">Subscriptions updated</string>
     <string name="ProxySubscriptionEmpty">No subscriptions</string>
+    <string name="ProxyHwidMode">HWID Mode</string>
+    <string name="DeleteSubscriptionConfirm">Delete this subscription and all its servers?</string>
     <string name="DeleteAllServer">Delete all servers</string>
     <string name="DeleteUnavailableServer">Delete unavailable servers</string>
     <string name="ImportedProxies">Imported proxy servers: </string>

@@ -51,6 +51,7 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
+import org.telegram.ui.ActionBar.ActionBarMenuSubItem;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BackDrawable;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -122,6 +123,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private NumberTextView selectedCountTextView;
     private ActionBarMenuItem shareMenuItem;
     private ActionBarMenuItem deleteMenuItem;
+    private ActionBarMenuSubItem hwidModeItem;
 
     private List<SharedConfig.ProxyInfo> selectedItems = new ArrayList<>();
     private List<SharedConfig.ProxyInfo> proxyList = new ArrayList<>();
@@ -385,6 +387,63 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         }
     }
 
+    private class SubscriptionGroupCell extends FrameLayout {
+        private final TextView textView;
+        private final ImageView refreshView;
+        private final ImageView collapseView;
+
+        public SubscriptionGroupCell(Context context) {
+            super(context);
+            textView = new TextView(context);
+            textView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+            textView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+            textView.setLines(1);
+            textView.setMaxLines(1);
+            textView.setSingleLine(true);
+            textView.setEllipsize(TextUtils.TruncateAt.END);
+            textView.setGravity((LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.CENTER_VERTICAL);
+            addView(textView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, (LocaleController.isRTL ? Gravity.RIGHT : Gravity.LEFT) | Gravity.CENTER_VERTICAL, 21, 0, 21, 0));
+
+            refreshView = new ImageView(context);
+            refreshView.setScaleType(ImageView.ScaleType.CENTER);
+            refreshView.setImageResource(R.drawable.msg_reset);
+            refreshView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), PorterDuff.Mode.MULTIPLY));
+            refreshView.setContentDescription(LocaleController.getString(R.string.Refresh));
+            refreshView.setClickable(true);
+            addView(refreshView, LayoutHelper.createFrame(40, 40, Gravity.CENTER_VERTICAL | (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT), LocaleController.isRTL ? 8 : 0, 0, LocaleController.isRTL ? 0 : 8, 0));
+
+            collapseView = new ImageView(context);
+            collapseView.setScaleType(ImageView.ScaleType.CENTER);
+            collapseView.setImageResource(R.drawable.arrow_more);
+            collapseView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayIcon), PorterDuff.Mode.MULTIPLY));
+            addView(collapseView, LayoutHelper.createFrame(40, 40, Gravity.CENTER_VERTICAL | (LocaleController.isRTL ? Gravity.LEFT : Gravity.RIGHT), LocaleController.isRTL ? 48 : 0, 0, LocaleController.isRTL ? 0 : 48, 0));
+        }
+
+        public void setGroup(String title, boolean collapsed, boolean showCollapse) {
+            textView.setText(title);
+            collapseView.setVisibility(showCollapse ? View.VISIBLE : View.GONE);
+            collapseView.setRotation(collapsed ? 0f : 180f);
+            updateTextLayout(showCollapse);
+        }
+
+        public void setOnRefreshClickListener(OnClickListener listener) {
+            refreshView.setOnClickListener(listener);
+        }
+
+        private void updateTextLayout(boolean showCollapse) {
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) textView.getLayoutParams();
+            int rightMargin = showCollapse ? AndroidUtilities.dp(96) : AndroidUtilities.dp(56);
+            if (LocaleController.isRTL) {
+                params.leftMargin = rightMargin;
+                params.rightMargin = AndroidUtilities.dp(21);
+            } else {
+                params.rightMargin = rightMargin;
+                params.leftMargin = AndroidUtilities.dp(21);
+            }
+            textView.setLayoutParams(params);
+        }
+    }
+
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
@@ -455,6 +514,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private final static int na_menu_delete_all = 1006;
     private final static int na_menu_delete_unavailable = 1007;
     private final static int na_menu_refresh_subscriptions = 1008;
+    private final static int na_menu_hwid_mode = 1009;
 
     @Override
     public View createView(Context context) {
@@ -481,6 +541,12 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         otherItem.addSubItem(na_menu_add_input_telegram, LocaleController.getString("AddProxyTelegram", R.string.AddProxyTelegram)).setOnClickListener((v) -> presentFragment(new ProxySettingsActivity()));
         otherItem.addSubItem(na_menu_add_import_from_clipboard, LocaleController.getString("ImportProxyFromClipboard", R.string.ImportProxyFromClipboard)).setOnClickListener((v) -> ProxyUtil.importFromClipboard(getParentActivity()));
         otherItem.addSubItem(na_menu_add_import_from_url, LocaleController.getString("ImportProxyFromUrl", R.string.ImportProxyFromUrl)).setOnClickListener((v) -> showImportFromUrlDialog());
+        hwidModeItem = otherItem.addSubItem(na_menu_hwid_mode, 0, LocaleController.getString("ProxyHwidMode", R.string.ProxyHwidMode), true);
+        updateHwidMenuState();
+        hwidModeItem.setOnClickListener((v) -> {
+            ProxyUtil.setHwidModeEnabled(!ProxyUtil.isHwidModeEnabled());
+            updateHwidMenuState();
+        });
         otherItem.addSubItem(na_menu_retest_ping, LocaleController.getString("RetestPing", R.string.RetestPing)).setOnClickListener((v) -> {
             checkProxyList(true);
             updateVisibleProxyStatuses();
@@ -710,6 +776,35 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             }
             return false;
         });
+        itemTouchHelper = new ItemTouchHelper(new ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT) {
+            @Override
+            public int getMovementFlags(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder) {
+                int position = viewHolder.getAdapterPosition();
+                if (position == RecyclerView.NO_POSITION || !isSubscriptionGroupPosition(position) || !selectedItems.isEmpty()) {
+                    return 0;
+                }
+                return makeMovementFlags(0, ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT);
+            }
+
+            @Override
+            public boolean onMove(@NonNull RecyclerView recyclerView, @NonNull RecyclerView.ViewHolder viewHolder, @NonNull RecyclerView.ViewHolder target) {
+                return false;
+            }
+
+            @Override
+            public void onSwiped(@NonNull RecyclerView.ViewHolder viewHolder, int direction) {
+                int position = viewHolder.getAdapterPosition();
+                SubscriptionRow row = getSubscriptionRow(position);
+                if (row == null || !row.isGroup || row.group == null) {
+                    if (listAdapter != null) {
+                        listAdapter.notifyItemChanged(position);
+                    }
+                    return;
+                }
+                confirmDeleteSubscriptionGroup(row.group, position);
+            }
+        });
+        itemTouchHelper.attachToRecyclerView(listView);
 
         ActionBarMenu actionMode = actionBar.createActionMode();
         selectedCountTextView = new NumberTextView(actionMode.getContext());
@@ -1094,6 +1189,78 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         return row != null && row.isGroup;
     }
 
+    private void updateHwidMenuState() {
+        if (hwidModeItem == null) {
+            return;
+        }
+        boolean enabled = ProxyUtil.isHwidModeEnabled();
+        hwidModeItem.setChecked(enabled);
+        if (hwidModeItem.checkView != null) {
+            hwidModeItem.checkView.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        }
+        if (hwidModeItem.textView != null) {
+            int padding = enabled ? AndroidUtilities.dp(34) : 0;
+            if (hwidModeItem.checkViewLeft) {
+                hwidModeItem.textView.setPadding(padding, 0, 0, 0);
+            } else {
+                hwidModeItem.textView.setPadding(0, 0, padding, 0);
+            }
+        }
+    }
+
+    private void deleteSubscriptionGroup(SubscriptionGroup group) {
+        if (group == null) {
+            return;
+        }
+        String title = group.name;
+        ProxyUtil.removeSubscriptionsByTitle(title);
+        for (SharedConfig.ProxyInfo info : SharedConfig.getProxyList()) {
+            if (info.isSubscription && TextUtils.equals(getSubscriptionGroupTitle(info), title)) {
+                SharedConfig.deleteProxy(info);
+            }
+        }
+        collapsedSubscriptions.remove(title);
+        if (SharedConfig.currentProxy == null) {
+            useProxyForCalls = false;
+            useProxySettings = false;
+        }
+        NotificationCenter.getGlobalInstance().removeObserver(ProxyListActivity.this, NotificationCenter.proxySettingsChanged);
+        NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxySettingsChanged);
+        NotificationCenter.getGlobalInstance().addObserver(ProxyListActivity.this, NotificationCenter.proxySettingsChanged);
+        updateRows(true);
+        if (listAdapter != null) {
+            if (SharedConfig.currentProxy == null) {
+                listAdapter.notifyItemChanged(useProxyRow, ListAdapter.PAYLOAD_CHECKED_CHANGED);
+                listAdapter.notifyItemChanged(callsRow, ListAdapter.PAYLOAD_CHECKED_CHANGED);
+            }
+            listAdapter.clearSelected();
+        }
+    }
+
+    private void confirmDeleteSubscriptionGroup(SubscriptionGroup group, int position) {
+        if (getParentActivity() == null || group == null) {
+            if (listAdapter != null) {
+                listAdapter.notifyItemChanged(position);
+            }
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle(LocaleController.getString(R.string.DeleteAllServer));
+        builder.setMessage(LocaleController.getString(R.string.DeleteSubscriptionConfirm));
+        builder.setNegativeButton(LocaleController.getString(R.string.Cancel), (dialog, which) -> {
+            if (listAdapter != null) {
+                listAdapter.notifyItemChanged(position);
+            }
+        });
+        builder.setPositiveButton(LocaleController.getString(R.string.Delete), (dialog, which) -> deleteSubscriptionGroup(group));
+        AlertDialog dialog = builder.create();
+        showDialog(dialog);
+        TextView button = (TextView) dialog.getButton(DialogInterface.BUTTON_POSITIVE);
+        if (button != null) {
+            button.setTextColor(Theme.getColor(Theme.key_text_RedBold));
+        }
+    }
+
     private boolean isProxyVisibleForCheck(SharedConfig.ProxyInfo proxyInfo) {
         if (proxyInfo == null || !proxyInfo.isSubscription || !canCollapseSubscriptions) {
             return true;
@@ -1372,18 +1539,18 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     break;
                 }
                 case VIEW_TYPE_SUBSCRIPTION_GROUP: {
-                    TextSettingsCell textCell = (TextSettingsCell) holder.itemView;
+                    SubscriptionGroupCell cell = (SubscriptionGroupCell) holder.itemView;
                     SubscriptionRow row = getSubscriptionRow(position);
-                    textCell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
-                    textCell.setTextValueColor(Theme.getColor(Theme.key_windowBackgroundWhiteValueText));
                     if (row != null && row.group != null) {
                         boolean collapsed = canCollapseSubscriptions && collapsedSubscriptions.contains(row.group.name);
-                        String value = canCollapseSubscriptions ? LocaleController.getString(collapsed ? R.string.PollExpand : R.string.PollCollapse) : null;
-                        if (value != null) {
-                            textCell.setTextAndValue(row.group.name, value, position != subscriptionEndRow - 1);
-                        } else {
-                            textCell.setText(row.group.name, position != subscriptionEndRow - 1);
-                        }
+                        cell.setGroup(row.group.name, collapsed, canCollapseSubscriptions);
+                        String title = row.group.name;
+                        cell.setOnRefreshClickListener(v -> {
+                            if (getParentActivity() == null) {
+                                return;
+                            }
+                            ProxyUtil.refreshSubscriptionsByTitle(getParentActivity(), title);
+                        });
                     }
                     break;
                 }
@@ -1508,8 +1675,11 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     view = new ShadowSectionCell(mContext);
                     break;
                 case VIEW_TYPE_TEXT_SETTING:
-                case VIEW_TYPE_SUBSCRIPTION_GROUP:
                     view = new TextSettingsCell(mContext);
+                    view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
+                    break;
+                case VIEW_TYPE_SUBSCRIPTION_GROUP:
+                    view = new SubscriptionGroupCell(mContext);
                     view.setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
                     break;
                 case VIEW_TYPE_HEADER:
